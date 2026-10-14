@@ -1,0 +1,42 @@
+name: Verify API foundation
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: docker/setup-compose-action@v2
+        with:
+          version: v5.5.1
+      - name: Create disposable configuration
+        run: |
+          cp .env.example .env
+          node scripts/configure-local.cjs
+      - run: npm ci --ignore-scripts
+      - run: npm run prisma:generate
+      - run: npm run prisma:validate
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test:ci
+      - run: npm run test:database
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+      - run: npm run docker:config
+      - name: Verify full Docker startup and migrations
+        run: |
+          docker compose --env-file .env up -d --build --wait
+          docker compose --env-file .env exec -T api node scripts/healthcheck.cjs
+      - name: Stop isolated Compose services
+        if: always()
+        run: docker compose --env-file .env down

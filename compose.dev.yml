@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      target: development
+    environment:
+      NODE_OPTIONS: ${DEV_NODE_OPTIONS}
+    mem_limit: ${DOCKER_DEV_MEMORY}
+    cpus: ${DOCKER_DEV_CPUS}
+    read_only: false
+    user: '${DOCKER_UID}:${DOCKER_GID}'
+    develop:
+      watch:
+        - path: ./src
+          target: /app/src
+          action: sync
+          initial_sync: true
+          ignore: [generated/]
+        - path: ./package.json
+          action: rebuild
+        - path: ./package-lock.json
+          action: rebuild
+        - path: ./prisma
+          action: rebuild

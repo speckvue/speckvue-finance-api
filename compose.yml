@@ -1,0 +1,173 @@
+name: speckvue-finance-api
+x-application: &application
+  environment: &application-environment
+    NODE_ENV: ${NODE_ENV:?Set NODE_ENV in .env}
+    APP_NAME: ${APP_NAME:?Set APP_NAME in .env}
+    APP_HOST: ${DOCKER_APP_HOST:?Set DOCKER_APP_HOST in .env}
+    APP_PORT: ${APP_PORT:?Set APP_PORT in .env}
+    APP_URL: ${APP_URL:?Set APP_URL in .env}
+    API_PREFIX: ${API_PREFIX:?Set API_PREFIX in .env}
+    API_VERSION: ${API_VERSION:?Set API_VERSION in .env}
+    FRONTEND_URL: ${FRONTEND_URL:?Set FRONTEND_URL in .env}
+    CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env}
+    BODY_LIMIT: ${BODY_LIMIT:?Set BODY_LIMIT in .env}
+    REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:?Set REQUEST_TIMEOUT_MS in .env}
+    TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS:-}
+    LOG_LEVEL: ${LOG_LEVEL}
+    LOG_DIRECTORY: ${DOCKER_LOG_DIRECTORY}
+    LOG_FILE_ENABLED: ${LOG_FILE_ENABLED}
+    LOG_MAX_SIZE: ${LOG_MAX_SIZE}
+    LOG_MAX_FILES: ${LOG_MAX_FILES}
+    REDIS_HOST: ${DOCKER_REDIS_HOST}
+    REDIS_PORT: ${REDIS_INTERNAL_PORT}
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+    REDIS_DATABASE: ${REDIS_DATABASE}
+    REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX}
+    REDIS_TLS: ${REDIS_TLS}
+    REDIS_CONNECT_TIMEOUT_MS: ${REDIS_CONNECT_TIMEOUT_MS}
+    REDIS_COMMAND_TIMEOUT_MS: ${REDIS_COMMAND_TIMEOUT_MS}
+    SWAGGER_ENABLED: ${SWAGGER_ENABLED:?Set SWAGGER_ENABLED in .env}
+    SIGNUP_ENABLED: ${SIGNUP_ENABLED:?Set SIGNUP_ENABLED in .env}
+    SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+    SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:?Set SESSION_COOKIE_NAME in .env}
+    SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:?Set SESSION_TTL_SECONDS in .env}
+    COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE in .env}
+    COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:?Set COOKIE_SAME_SITE in .env}
+    THROTTLE_TTL_MS: ${THROTTLE_TTL_MS:?Set THROTTLE_TTL_MS in .env}
+    THROTTLE_LIMIT: ${THROTTLE_LIMIT:?Set THROTTLE_LIMIT in .env}
+    AUTH_THROTTLE_LIMIT: ${AUTH_THROTTLE_LIMIT:?Set AUTH_THROTTLE_LIMIT in .env}
+    ARGON_MEMORY_KIB: ${ARGON_MEMORY_KIB:?Set ARGON_MEMORY_KIB in .env}
+    ARGON_TIME_COST: ${ARGON_TIME_COST:?Set ARGON_TIME_COST in .env}
+    ARGON_PARALLELISM: ${ARGON_PARALLELISM:?Set ARGON_PARALLELISM in .env}
+    AUTH_CONCURRENCY: ${AUTH_CONCURRENCY:?Set AUTH_CONCURRENCY in .env}
+    POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    DATABASE_TLS: ${DATABASE_TLS:?Set DATABASE_TLS in .env}
+    DATABASE_CA_FILE: ${DATABASE_CA_FILE:-}
+    DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:?Set DATABASE_POOL_MAX in .env}
+    DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:?Set DATABASE_CONNECTION_TIMEOUT_MS in .env}
+    DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:?Set DATABASE_QUERY_TIMEOUT_MS in .env}
+    POSTGRES_HOST: ${DOCKER_DATABASE_HOST:?Set DOCKER_DATABASE_HOST in .env}
+    POSTGRES_PORT: ${DOCKER_DATABASE_PORT:?Set DOCKER_DATABASE_PORT in .env}
+services:
+  redis:
+    image: ${REDIS_IMAGE:?Set REDIS_IMAGE in .env}
+    user: redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Initialize REDIS_PASSWORD in .env}
+      REDIS_INTERNAL_PORT: ${REDIS_INTERNAL_PORT}
+      REDIS_MAX_MEMORY: ${REDIS_MAX_MEMORY}
+    command:
+      [
+        '/bin/sh',
+        '-ec',
+        'exec redis-server --port "$$REDIS_INTERNAL_PORT" --requirepass "$$REDIS_PASSWORD" --maxmemory "$$REDIS_MAX_MEMORY" --maxmemory-policy noeviction --save "" --appendonly no',
+      ]
+    ports:
+      - '${DOCKER_BIND_HOST}:${REDIS_PORT}:${REDIS_INTERNAL_PORT}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:noexec,nosuid,size=16m']
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli -p "$$REDIS_INTERNAL_PORT" ping | grep -q PONG',
+        ]
+      interval: ${DOCKER_HEALTH_INTERVAL}
+      timeout: ${DOCKER_HEALTH_TIMEOUT}
+      retries: ${DOCKER_HEALTH_RETRIES}
+    mem_limit: ${DOCKER_REDIS_MEMORY}
+    cpus: ${DOCKER_REDIS_CPUS}
+  db:
+    image: ${POSTGRES_IMAGE:?Set POSTGRES_IMAGE in .env}
+    restart: ${DOCKER_RESTART_POLICY}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+      TZ: UTC
+      APP_DATABASE_USER: ${POSTGRES_USER}
+      APP_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      MIGRATION_DATABASE_USER: ${POSTGRES_MIGRATION_USER}
+      MIGRATION_DATABASE_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD}
+    ports:
+      - '${DOCKER_BIND_HOST}:${POSTGRES_PORT}:${DOCKER_DATABASE_PORT}'
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./docker/init-database.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: ${DOCKER_HEALTH_INTERVAL}
+      timeout: ${DOCKER_HEALTH_TIMEOUT}
+      retries: ${DOCKER_HEALTH_RETRIES}
+    mem_limit: ${DOCKER_DB_MEMORY}
+    cpus: ${DOCKER_DB_CPUS}
+  migrate:
+    <<: *application
+    build:
+      context: .
+      target: migration
+      args:
+        HTTP_PROXY: ${DOCKER_HTTP_PROXY:-}
+        http_proxy: ${DOCKER_HTTP_PROXY:-}
+        https_proxy: ${DOCKER_HTTPS_PROXY:-}
+        no_proxy: ${DOCKER_NO_PROXY:-}
+        HTTPS_PROXY: ${DOCKER_HTTPS_PROXY:-}
+        NO_PROXY: ${DOCKER_NO_PROXY:-}
+        DOCKER_LOG_DIRECTORY: ${DOCKER_LOG_DIRECTORY}
+        NODE_IMAGE: ${NODE_IMAGE}
+    environment:
+      <<: *application-environment
+      POSTGRES_MIGRATION_USER: ${POSTGRES_MIGRATION_USER}
+      POSTGRES_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+  api:
+    <<: *application
+    image: ${DOCKER_API_IMAGE}
+    build:
+      context: .
+      target: production
+      args:
+        HTTP_PROXY: ${DOCKER_HTTP_PROXY:-}
+        http_proxy: ${DOCKER_HTTP_PROXY:-}
+        https_proxy: ${DOCKER_HTTPS_PROXY:-}
+        no_proxy: ${DOCKER_NO_PROXY:-}
+        HTTPS_PROXY: ${DOCKER_HTTPS_PROXY:-}
+        NO_PROXY: ${DOCKER_NO_PROXY:-}
+        DOCKER_LOG_DIRECTORY: ${DOCKER_LOG_DIRECTORY}
+        NODE_IMAGE: ${NODE_IMAGE}
+        DOCKER_UID: ${DOCKER_UID}
+        DOCKER_GID: ${DOCKER_GID}
+    volumes:
+      - api-logs:${DOCKER_LOG_DIRECTORY}
+    init: true
+    restart: ${DOCKER_RESTART_POLICY}
+    ports:
+      - '${DOCKER_BIND_HOST}:${APP_PORT}:${APP_PORT}'
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:noexec,nosuid,size=16m']
+    healthcheck:
+      test: ['CMD', 'node', 'scripts/healthcheck.cjs']
+      interval: ${DOCKER_HEALTH_INTERVAL}
+      timeout: ${DOCKER_HEALTH_TIMEOUT}
+      start_period: ${DOCKER_HEALTH_START_PERIOD}
+      retries: ${DOCKER_HEALTH_RETRIES}
+    mem_limit: ${DOCKER_API_MEMORY}
+    cpus: ${DOCKER_API_CPUS}
+volumes:
+  api-logs:
+  postgres-data:
