@@ -15,9 +15,6 @@ describe('API contracts and isolation', () => {
   let aliceCookie: string;
   let bobCookie: string;
   let csrf: string;
-  let bobCsrf: string;
-  let accountId: string;
-  let key: string;
   const emails = [
     randomUUID() + '@test.invalid',
     randomUUID() + '@test.invalid',
@@ -39,13 +36,6 @@ describe('API contracts and isolation', () => {
   });
   afterAll(async () => {
     if (db) {
-      const users = await db.user.findMany({
-        where: { email: { in: emails } },
-        select: { id: true },
-      });
-      await db.account.deleteMany({
-        where: { userId: { in: users.map((u) => u.id) } },
-      });
       await db.user.deleteMany({ where: { email: { in: emails } } });
     }
     if (app) await app.close();
@@ -125,7 +115,6 @@ describe('API contracts and isolation', () => {
         csrf = res.body.csrfToken;
       } else {
         bobCookie = cookie;
-        bobCsrf = res.body.csrfToken;
       }
     }
     const me = await request(app.getHttpServer())
@@ -134,98 +123,24 @@ describe('API contracts and isolation', () => {
       .expect(200);
     expect(Object.keys(me.body).sort()).toEqual(['createdAt', 'email', 'id']);
   });
-  test('rejects CSRF failure, untrusted origins, and ownership injection', async () => {
+  test('removed financial routes are unavailable', async () => {
     await request(app.getHttpServer())
-      .post(prefix + '/accounts')
+      .get(prefix + '/accounts')
+      .set('Cookie', aliceCookie)
+      .expect(404);
+  });
+  test('rejects missing CSRF tokens and untrusted origins', async () => {
+    await request(app.getHttpServer())
+      .post(prefix + '/auth/signout')
       .set('Cookie', aliceCookie)
       .set('Origin', origin)
-      .send({})
       .expect(403);
     await request(app.getHttpServer())
-      .post(prefix + '/accounts')
+      .post(prefix + '/auth/signout')
       .set('Cookie', aliceCookie)
       .set('Origin', 'http://evil.invalid')
       .set('X-CSRF-Token', csrf)
-      .send({})
       .expect(403);
-    await request(app.getHttpServer())
-      .post(prefix + '/accounts')
-      .set('Cookie', aliceCookie)
-      .set('Origin', origin)
-      .set('X-CSRF-Token', csrf)
-      .set('Idempotency-Key', randomUUID())
-      .send({
-        name: 'Cash',
-        currency: 'USD',
-        openingBalance: '0',
-        userId: randomUUID(),
-      })
-      .expect(400);
-  });
-  test('creates idempotently and preserves decimal strings', async () => {
-    key = randomUUID();
-    const dto = { name: 'Cash', currency: 'USD', openingBalance: '0.1000' };
-    const make = () =>
-      request(app.getHttpServer())
-        .post(prefix + '/accounts')
-        .set('Cookie', aliceCookie)
-        .set('Origin', origin)
-        .set('X-CSRF-Token', csrf)
-        .set('Idempotency-Key', key);
-    const first = await make().send(dto).expect(201);
-    accountId = first.body.id;
-    expect(first.body.openingBalance).toBe('0.1000');
-    const second = await make().send(dto).expect(201);
-    expect(second.body.id).toBe(accountId);
-    await make()
-      .send({ ...dto, name: 'Changed' })
-      .expect(409);
-  });
-  test('prevents cross-user reads, updates, and deletes', async () => {
-    await request(app.getHttpServer())
-      .get(prefix + '/accounts/' + accountId)
-      .set('Cookie', bobCookie)
-      .expect(404);
-    for (const method of ['patch', 'delete'] as const) {
-      const req = request(app.getHttpServer())
-        [method](prefix + '/accounts/' + accountId)
-        .set('Cookie', bobCookie)
-        .set('Origin', origin)
-        .set('X-CSRF-Token', bobCsrf);
-      await (method === 'patch' ? req.send({ name: 'Stolen' }) : req).expect(
-        404,
-      );
-    }
-    const list = await request(app.getHttpServer())
-      .get(prefix + '/accounts')
-      .set('Cookie', bobCookie)
-      .expect(200);
-    expect(list.body.data).toEqual([]);
-    await request(app.getHttpServer())
-      .get(prefix + '/accounts?cursor=' + accountId)
-      .set('Cookie', bobCookie)
-      .expect(404);
-  });
-  test('allows rename and archive without modifying historical amount', async () => {
-    const res = await request(app.getHttpServer())
-      .patch(prefix + '/accounts/' + accountId)
-      .set('Cookie', aliceCookie)
-      .set('Origin', origin)
-      .set('X-CSRF-Token', csrf)
-      .send({ name: 'Renamed' })
-      .expect(200);
-    expect(res.body.openingBalance).toBe('0.1000');
-    await request(app.getHttpServer())
-      .delete(prefix + '/accounts/' + accountId)
-      .set('Cookie', aliceCookie)
-      .set('Origin', origin)
-      .set('X-CSRF-Token', csrf)
-      .expect(204);
-    await request(app.getHttpServer())
-      .get(prefix + '/accounts/' + accountId)
-      .set('Cookie', aliceCookie)
-      .expect(404);
-    expect(await db.account.count({ where: { id: accountId } })).toBe(1);
   });
   test('rotates presented sessions and rejects expired sessions', async () => {
     const previous = bobCookie;

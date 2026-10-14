@@ -2,7 +2,7 @@
 
 Backend API for Speckvue Finance, handling personal financial data, transactions, budgets, accounts, and core financial management operations.
 
-Private Speckvue source for a public-facing product. First-party code is proprietary; dependency licenses remain intact. This is the backend engineering foundation, with working authentication, user profiles, health, and representative account operations. Transactions, categories, budgets, savings goals, and reports are planned boundaries, not complete features.
+Private Speckvue source for a public-facing product. First-party code is proprietary; dependency licenses remain intact. This is the backend engineering foundation, with working authentication, user profiles and health. Transactions, categories, budgets, savings goals, and reports are planned boundaries, not complete features.
 
 ## Stack and prerequisites
 
@@ -30,7 +30,7 @@ Supply the dedicated runtime and migration role credentials in .env. For new sch
 ## B: Native API and Docker PostgreSQL
 
 ```powershell
-npm run db:up
+npm run infra:up
 npm run db:deploy
 npm run dev
 ```
@@ -78,10 +78,9 @@ Integration/E2E tests refuse database names without the _test suffix and run onl
 src/
   config/             validated typed configuration
   database/           shared Prisma lifecycle
-  common/             guards, contracts, errors, money utilities
+  common/             guards, contracts, errors and logging
   modules/auth/       passwords, database sessions, CSRF
   modules/users/      safe profile selection
-  modules/accounts/   representative owned account operations
   modules/health/     minimal liveness/readiness
   generated/prisma/   ignored generated client
 prisma/               schema and committed migrations

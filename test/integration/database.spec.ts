@@ -25,48 +25,23 @@ describe('real PostgreSQL integrity', () => {
   });
   afterAll(async () => {
     if (userId) {
-      await db.account.deleteMany({ where: { userId } });
       await db.user.delete({ where: { id: userId } });
     }
     await db.$disconnect();
   });
-  test('stores exact decimals with a valid owner', async () => {
-    const account = await db.account.create({
-      data: {
-        userId,
-        name: 'Precision',
-        currency: 'USD',
-        openingBalance: '9999999999999999.9999',
-        idempotencyKey: randomUUID(),
-        requestHash: 'a'.repeat(64),
-      },
-    });
-    expect(account.openingBalance.toFixed(4)).toBe('9999999999999999.9999');
-  });
-  test('enforces owner foreign keys', async () => {
+  test('enforces unique user emails', async () => {
+    const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
     await expect(
-      db.account.create({
-        data: {
-          userId: randomUUID(),
-          name: 'Orphan',
-          currency: 'USD',
-          openingBalance: '0',
-          idempotencyKey: randomUUID(),
-          requestHash: 'a'.repeat(64),
-        },
-      }),
+      db.user.create({ data: { email: user.email, passwordHash: 'hash' } }),
     ).rejects.toThrow();
   });
-  test('enforces monetary currency constraints', async () => {
+  test('enforces session ownership', async () => {
     await expect(
-      db.account.create({
+      db.session.create({
         data: {
-          userId,
-          name: 'Bad',
-          currency: 'usd',
-          openingBalance: '0',
-          idempotencyKey: randomUUID(),
-          requestHash: 'a'.repeat(64),
+          userId: randomUUID(),
+          tokenHash: 'a'.repeat(64),
+          expiresAt: new Date(Date.now() + 60000),
         },
       }),
     ).rejects.toThrow();
@@ -84,6 +59,15 @@ describe('real PostgreSQL integrity', () => {
   test('runtime role cannot create tables', async () => {
     await expect(
       db.$executeRawUnsafe('CREATE TABLE should_not_exist (id integer)'),
+    ).rejects.toThrow();
+  });
+  test('sample table is outside the active schema and inaccessible', async () => {
+    const result = await db.$queryRaw<Array<{ table: string | null }>>`
+      SELECT to_regclass('public."Account"')::text AS "table"
+    `;
+    expect(result[0].table).toBeNull();
+    await expect(
+      db.$queryRawUnsafe('SELECT * FROM speckvue_archive."Account"'),
     ).rejects.toThrow();
   });
 });

@@ -7,7 +7,6 @@ import LoggingModule from './common/logging/logging.module';
 import ConfigurationModule from './config/configuration.module';
 import SettingsService from './config/settings.service';
 import DatabaseModule from './database/database.module';
-import AccountsModule from './modules/accounts/accounts.module';
 import AuthModule from './modules/auth/auth.module';
 import HealthModule from './modules/health/health.module';
 import UsersModule from './modules/users/users.module';
@@ -20,7 +19,6 @@ import RedisModule from './redis/redis.module';
     DatabaseModule,
     AuthModule,
     UsersModule,
-    AccountsModule,
     HealthModule,
     LoggingModule,
     RedisModule,

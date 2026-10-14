@@ -15,7 +15,6 @@ model User {
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
   sessions     Session[]
-  accounts     Account[]
 }
 
 model Session {
@@ -28,21 +27,4 @@ model Session {
 
   @@index([expiresAt])
   @@index([userId])
-}
-
-model Account {
-  id             String    @id @default(uuid()) @db.Uuid
-  userId         String    @db.Uuid
-  user           User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  name           String    @db.VarChar(100)
-  currency       String    @db.Char(3)
-  openingBalance Decimal   @db.Decimal(20, 4)
-  idempotencyKey String    @db.Uuid
-  requestHash    String    @db.Char(64)
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
-  archivedAt     DateTime? @db.Timestamptz(3)
-
-  @@unique([userId, idempotencyKey])
-  @@index([userId, createdAt, id])
 }

@@ -8,6 +8,12 @@ First Compose database startup creates a bootstrap administrator, a migration ro
 
 Commands: prisma:generate and prisma:validate need no database changes; db:migrate invokes migrate dev; db:deploy invokes migrate deploy and applies narrow runtime grants; db:studio opens Prisma Studio. Development migration diffing needs a separately managed shadow database or development-only CREATEDB on the migration role. Do not grant broad privileges in production. Run migrations once per deployment, not per API replica. No reset or db push is in normal startup.
 
-UUIDs identify users and resources. Unique email and session digests, account ownership foreign keys, uppercase three-letter currency constraints, and owner/idempotency uniqueness protect integrity. Owner/createdAt/id supports bounded ordered cursor pages; session expiry/user indexes support cleanup and invalidation. Accounts use NUMERIC(20,4), accepting no more than four fractional digits; no rounding is silently performed. Aggregate operations must use Prisma.Decimal, with a deliberate rounding policy when future division/conversion is introduced. Balances are immutable opening values here, not computed totals.
+UUIDs identify users and sessions. Unique email addresses and session digests, session ownership foreign keys, and expiry/user indexes protect identity integrity. Active models contain no financial examples.
 
 For failed migrations, stop deployment, inspect prisma migrate status, restore/test against a backup, and use Prisma migrate resolve only after reconciling the actual database state. Prefer forward fixes; schema rollback is not implied by reverting code. Production recovery requires operator-approved backups and restore drills. No destructive synchronization commands are provided.
+
+## Existing installations
+
+The original migration remains immutable. A forward migration moves the former Account table into speckvue_archive, preserving its records and constraints without exposing it through Prisma or API routes. The runtime role has no access to this archive. Do not rewrite applied migration history or delete existing database volumes. Future product migrations should define their own real models.
+
+For native PostgreSQL or an existing Docker volume, the database administrator must grant CREATE on the application database to POSTGRES_MIGRATION_USER before deployment. Use GRANT CREATE ON DATABASE your_database TO your_migration_role; substitute names from .env. This allows the migrator to create the archive schema and supports replay in development shadow databases. It does not grant CREATEDB or runtime privileges. Fresh Docker installations provision this through docker/init-database.sh.

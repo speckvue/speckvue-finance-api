@@ -38,8 +38,12 @@ const migrate = async () => {
   await client.connect();
   try {
     await client.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "User", "Session", "Account" TO "${role}"`,
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "User", "Session" TO "${role}"`,
     );
+    await client.query(
+      `REVOKE ALL ON TABLE speckvue_archive."Account" FROM "${role}"`,
+    );
+    await client.query(`REVOKE ALL ON SCHEMA speckvue_archive FROM "${role}"`);
     await client.query(
       `REVOKE ALL ON TABLE "_prisma_migrations" FROM "${role}"`,
     );

@@ -1,5 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
-import { CreateAccountDto } from '../../src/modules/accounts/accounts.dto';
+import { SignupDto } from '../../src/modules/auth/auth.dto';
 
 const pipe = new ValidationPipe({
   whitelist: true,
@@ -8,33 +8,31 @@ const pipe = new ValidationPipe({
 });
 
 describe('request validation', () => {
-  test('rejects client ownership identifiers', async () => {
+  test('rejects injected ownership fields', async () => {
     await expect(
       pipe.transform(
         {
-          name: 'Cash',
-          currency: 'USD',
-          openingBalance: '0',
+          email: 'person@test.invalid',
+          password: 'long-enough-password',
           userId: 'someone-else',
         },
-        { type: 'body', metatype: CreateAccountDto },
+        { type: 'body', metatype: SignupDto },
       ),
     ).rejects.toThrow();
   });
-  test('rejects numeric monetary amounts', async () => {
+  test('rejects invalid credentials', async () => {
     await expect(
       pipe.transform(
-        { name: 'Cash', currency: 'USD', openingBalance: 0.1 },
-        { type: 'body', metatype: CreateAccountDto },
+        { email: 'invalid', password: 'short' },
+        { type: 'body', metatype: SignupDto },
       ),
     ).rejects.toThrow();
   });
-  test('accepts explicit decimal strings', async () => {
-    await expect(
-      pipe.transform(
-        { name: 'Cash', currency: 'USD', openingBalance: '0.1000' },
-        { type: 'body', metatype: CreateAccountDto },
-      ),
-    ).resolves.toBeInstanceOf(CreateAccountDto);
+  test('normalizes valid email addresses', async () => {
+    const result = await pipe.transform(
+      { email: ' Person@Test.Invalid ', password: 'long-enough-password' },
+      { type: 'body', metatype: SignupDto },
+    );
+    expect(result.email).toBe('person@test.invalid');
   });
 });

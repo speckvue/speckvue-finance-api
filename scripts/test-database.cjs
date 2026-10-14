@@ -44,7 +44,7 @@ require('dotenv').config({ path: '.env', quiet: true });
         runtimePassword +
         "'; CREATE ROLE test_migrator LOGIN PASSWORD '" +
         migrationPassword +
-        "'; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO test_migrator; GRANT USAGE ON SCHEMA public TO test_app;",
+        "'; GRANT CREATE ON DATABASE speckvue_test TO test_migrator; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO test_migrator; GRANT USAGE ON SCHEMA public TO test_app;",
     );
     await client.end();
     const env = {
