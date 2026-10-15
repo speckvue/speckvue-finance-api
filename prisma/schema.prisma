@@ -23,6 +23,23 @@ model User {
   createdAt          DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
   sessions           Session[]
+  accounts           FinancialAccount[]
+}
+
+model FinancialAccount {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @db.Uuid
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String    @db.VarChar(80)
+  type               String    @db.VarChar(20)
+  currency           String    @db.Char(3)
+  openingBalance     Decimal   @db.Decimal(20, 4)
+  openingBalanceDate DateTime  @db.Date
+  archivedAt         DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([userId, archivedAt, id])
 }
 
 model Session {

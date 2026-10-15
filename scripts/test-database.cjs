@@ -71,6 +71,7 @@ require('dotenv').config({ path: '.env', quiet: true });
       REDIS_TLS: 'false',
       REDIS_KEY_PREFIX: 'speckvue:test:' + randomBytes(8).toString('hex'),
       AUTH_THROTTLE_LIMIT: '100',
+      THROTTLE_LIMIT: '500',
     };
     const run = (args) => {
       const result = spawnSync(process.execPath, args, {

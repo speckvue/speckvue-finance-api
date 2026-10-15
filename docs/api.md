@@ -1,6 +1,6 @@
 # API contracts
 
-The default base is http://localhost:4000/api/v1; prefix and URI version come from .env. The clean template exposes only authentication, the current user profile and health. Dates use ISO 8601 UTC.
+The default base is http://localhost:4000/api/v1; prefix and URI version come from .env. The API exposes authentication, current-user preferences, health, and owner-scoped financial accounts. Timestamps use ISO 8601 UTC; opening balance dates use YYYY-MM-DD.
 
 | Endpoint           | Access                | Behavior                                                               |
 | ------------------ | --------------------- | ---------------------------------------------------------------------- |
@@ -14,7 +14,7 @@ The default base is http://localhost:4000/api/v1; prefix and URI version come fr
 
 Additional endpoints: POST /users/me/onboarding, PATCH /users/me/preferences, GET /auth/sessions, DELETE /auth/sessions/:id, POST /auth/signout-all and POST /auth/password. See [accounts and preferences](accounts-and-preferences.md) for payloads and behavior.
 
-All nonpublic endpoints deny anonymous requests. Unknown DTO fields are rejected. Financial feature endpoints are not included.
+All nonpublic endpoints deny anonymous requests. Unknown DTO fields are rejected. See [financial accounts](financial-accounts.md) for account endpoints, decimal precision, currencies, pagination, archiving, and restoration.
 
 Browser mutations must send Origin matching one exact CORS_ORIGINS entry. Signin and signup require Origin to prevent signin CSRF; all authenticated mutations additionally require X-CSRF-Token from signin or /auth/csrf. Cookies are HttpOnly, host-only, path /api, SameSite lax by default, secure in production. SameSite none requires secure cookies. Requests from the frontend use credentials: include. Expired or revoked sessions return 401; the frontend should clear private query caches and request signin.
 

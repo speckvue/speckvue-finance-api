@@ -2,7 +2,7 @@
 
 Backend API for Speckvue Finance, handling personal financial data, transactions, budgets, accounts, and core financial management operations.
 
-Private Speckvue source for a public-facing product. First-party code is proprietary; dependency licenses remain intact. This is the backend engineering foundation, with working authentication, user profiles, onboarding, preferences and health. Transactions, categories, budgets, savings goals, and reports are planned boundaries, not complete features.
+Private Speckvue source for a public-facing product. First-party code is proprietary; dependency licenses remain intact. The API provides authentication, user profiles, onboarding, preferences, health, and manual [financial accounts](docs/financial-accounts.md). Transactions, categories, budgets, savings goals, and reports are planned boundaries, not complete features.
 
 ## Stack and prerequisites
 

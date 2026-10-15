@@ -7,6 +7,7 @@ import LoggingModule from './common/logging/logging.module';
 import ConfigurationModule from './config/configuration.module';
 import SettingsService from './config/settings.service';
 import DatabaseModule from './database/database.module';
+import AccountsModule from './modules/accounts/accounts.module';
 import AuthModule from './modules/auth/auth.module';
 import HealthModule from './modules/health/health.module';
 import UsersModule from './modules/users/users.module';
@@ -18,6 +19,7 @@ import RedisModule from './redis/redis.module';
     ConfigurationModule,
     DatabaseModule,
     AuthModule,
+    AccountsModule,
     UsersModule,
     HealthModule,
     LoggingModule,
@@ -31,7 +33,8 @@ import RedisModule from './redis/redis.module';
             name: 'default',
             ttl: s.get('THROTTLE_TTL_MS'),
             limit: (ctx: ExecutionContext) =>
-              ctx.getClass().name === 'AuthController'
+              ctx.getClass().name === 'AuthController' &&
+              ctx.getHandler().name !== 'csrf'
                 ? s.get('AUTH_THROTTLE_LIMIT')
                 : s.get('THROTTLE_LIMIT'),
           },

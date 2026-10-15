@@ -126,11 +126,218 @@ describe('API contracts and isolation', () => {
     expect(me.body.passwordHash).toBeUndefined();
     expect(me.body.credentialsVersion).toBeUndefined();
   });
-  test('removed financial routes are unavailable', async () => {
+  let financialId: string;
+  test('CSRF bootstraps use the normal API budget rather than the signin budget', async () => {
+    for (let i = 0; i < 101; i++)
+      await request(app.getHttpServer())
+        .get(prefix + '/auth/csrf')
+        .set('Cookie', aliceCookie)
+        .expect(200);
+  });
+  const financialInput = {
+    name: 'Everyday bank',
+    type: 'bank',
+    currency: 'USD',
+    openingBalance: '999999999999999.99',
+    openingBalanceDate: '2026-01-01',
+  };
+  test('accounts require authentication and CSRF for writes', async () => {
     await request(app.getHttpServer())
       .get(prefix + '/accounts')
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(prefix + '/accounts')
       .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .send(financialInput)
+      .expect(403);
+  });
+  test('creates a real account and preserves exact decimal precision', async () => {
+    const created = await request(app.getHttpServer())
+      .post(prefix + '/accounts')
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send(financialInput)
+      .expect(201);
+    financialId = created.body.id;
+    expect(created.body.openingBalance).toBe('999999999999999.9900');
+    expect(created.body.openingBalanceDate).toBe('2026-01-01');
+    expect(created.body.userId).toBeUndefined();
+    expect(created.body.archivedAt).toBeNull();
+    expect(
+      (
+        await db.financialAccount.findUniqueOrThrow({
+          where: { id: financialId },
+        })
+      ).openingBalance.toFixed(4),
+    ).toBe('999999999999999.9900');
+  });
+  test('account reads and writes never expose another owner', async () => {
+    const bobCsrf = (
+      await request(app.getHttpServer())
+        .get(prefix + '/auth/csrf')
+        .set('Cookie', bobCookie)
+        .expect(200)
+    ).body.csrfToken;
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get(prefix + '/accounts')
+          .set('Cookie', bobCookie)
+          .expect(200)
+      ).body.items,
+    ).toEqual([]);
+    await request(app.getHttpServer())
+      .get(prefix + '/accounts/' + financialId)
+      .set('Cookie', bobCookie)
       .expect(404);
+    await request(app.getHttpServer())
+      .patch(prefix + '/accounts/' + financialId)
+      .set('Cookie', bobCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', bobCsrf)
+      .send(financialInput)
+      .expect(404);
+    for (const action of ['archive', 'restore'])
+      await request(app.getHttpServer())
+        .post(prefix + '/accounts/' + financialId + '/' + action)
+        .set('Cookie', bobCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', bobCsrf)
+        .send({})
+        .expect(404);
+  });
+  test('rejects invalid amounts, dates, currencies, and extra ownership fields', async () => {
+    for (const input of [
+      { openingBalance: '0.001' },
+      { openingBalance: 100 },
+      { openingBalance: '1e5' },
+      { currency: 'JPY', openingBalance: '1.1' },
+      { currency: 'ZZZ' },
+      { name: '  ' },
+      { name: 'bad\u0000name' },
+      { type: 'invented' },
+      { openingBalanceDate: '2026-02-30' },
+      { openingBalanceDate: '2999-01-01' },
+      { userId: randomUUID() },
+    ])
+      await request(app.getHttpServer())
+        .post(prefix + '/accounts')
+        .set('Cookie', aliceCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', csrf)
+        .send({ ...financialInput, ...input })
+        .expect(400);
+    await request(app.getHttpServer())
+      .get(prefix + '/accounts/not-a-uuid')
+      .set('Cookie', aliceCookie)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(prefix + '/accounts?status=invalid')
+      .set('Cookie', aliceCookie)
+      .expect(400);
+  });
+  test('supports all account types and currency-specific decimal places', async () => {
+    for (const [type, currency, openingBalance] of [
+      ['cash', 'JPY', '2500'],
+      ['credit_card', 'USD', '-450.25'],
+      ['investment', 'USD', '1.23'],
+      ['loan', 'KWD', '-100.123'],
+      ['other', 'EUR', '0'],
+    ])
+      await request(app.getHttpServer())
+        .post(prefix + '/accounts')
+        .set('Cookie', aliceCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', csrf)
+        .send({ ...financialInput, name: type, type, currency, openingBalance })
+        .expect(201);
+  });
+  test('updates, archives idempotently, and restores without losing balances', async () => {
+    await request(app.getHttpServer())
+      .patch(prefix + '/accounts/' + financialId)
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send({ ...financialInput, name: 'Renamed bank' })
+      .expect(200);
+    const archive = () =>
+      request(app.getHttpServer())
+        .post(prefix + '/accounts/' + financialId + '/archive')
+        .set('Cookie', aliceCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', csrf)
+        .send({})
+        .expect(200);
+    const first = await archive();
+    expect((await archive()).body.archivedAt).toBe(first.body.archivedAt);
+    const active = await request(app.getHttpServer())
+      .get(prefix + '/accounts')
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    expect(
+      active.body.items.map((item: { id: string }) => item.id),
+    ).not.toContain(financialId);
+    const archived = await request(app.getHttpServer())
+      .get(prefix + '/accounts?status=archived')
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    expect(archived.body.items[0].id).toBe(financialId);
+    await request(app.getHttpServer())
+      .patch(prefix + '/accounts/' + financialId)
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send(financialInput)
+      .expect(404);
+    const restored = await request(app.getHttpServer())
+      .post(prefix + '/accounts/' + financialId + '/restore')
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send({})
+      .expect(200);
+    expect(restored.body.archivedAt).toBeNull();
+    expect(restored.body.name).toBe('Renamed bank');
+    expect(restored.body.openingBalance).toBe('999999999999999.9900');
+  });
+  test('paginates accounts without duplication or crossing owners', async () => {
+    const owner = await db.user.findUniqueOrThrow({
+      where: { email: emails[0] },
+    });
+    await db.financialAccount.createMany({
+      data: Array.from({ length: 51 }, (_, i) => ({
+        userId: owner.id,
+        name: 'Pagination ' + i,
+        type: 'cash',
+        currency: 'USD',
+        openingBalance: '0',
+        openingBalanceDate: new Date('2026-01-01'),
+      })),
+    });
+    const first = (
+      await request(app.getHttpServer())
+        .get(prefix + '/accounts')
+        .set('Cookie', aliceCookie)
+        .expect(200)
+    ).body;
+    expect(first.items).toHaveLength(50);
+    expect(first.nextCursor).toBeTruthy();
+    const second = (
+      await request(app.getHttpServer())
+        .get(prefix + '/accounts?after=' + first.nextCursor)
+        .set('Cookie', aliceCookie)
+        .expect(200)
+    ).body;
+    expect(second.nextCursor).toBeNull();
+    expect(
+      new Set(
+        [...first.items, ...second.items].map(
+          (item: { id: string }) => item.id,
+        ),
+      ).size,
+    ).toBe(57);
   });
   test('rejects missing CSRF tokens and untrusted origins', async () => {
     await request(app.getHttpServer())
