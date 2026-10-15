@@ -8,7 +8,7 @@ import SettingsService from '../../config/settings.service';
 import PrismaService from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import UsersService from '../users/users.service';
-import type { SigninDto, SignupDto } from './auth.dto';
+import type { ChangePasswordDto, SigninDto, SignupDto } from './auth.dto';
 import PasswordService from './password.service';
 
 @Injectable()
@@ -37,7 +37,7 @@ class AuthService {
     this.logger.info('Authentication audit', { event: 'signup_requested' });
   }
 
-  async signin(dto: SigninDto): Promise<string> {
+  async signin(dto: SigninDto) {
     const user = await this.users.credentials(dto.email);
     if (
       !(await this.passwords.verify(user?.passwordHash, dto.password)) ||
@@ -47,7 +47,25 @@ class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
     this.logger.info('Authentication audit', { event: 'signin_succeeded' });
-    return user.id;
+    return user;
+  }
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    const user = await this.db.user.findUniqueOrThrow({
+      where: { id: userId },
+    });
+    if (!(await this.passwords.verify(user.passwordHash, dto.currentPassword)))
+      throw new UnauthorizedException('Current password is incorrect');
+    const passwordHash = await this.passwords.hash(dto.newPassword);
+    await this.db.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({
+        where: { id: userId, credentialsVersion: user.credentialsVersion },
+        data: { passwordHash, credentialsVersion: { increment: 1 } },
+      });
+      if (!updated.count)
+        throw new UnauthorizedException('Credentials changed; signin again');
+      await tx.session.deleteMany({ where: { userId } });
+    });
+    this.logger.info('Authentication audit', { event: 'password_changed' });
   }
 }
 

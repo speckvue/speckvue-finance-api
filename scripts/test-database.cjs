@@ -5,7 +5,10 @@ const { Client } = require('pg');
 
 const { randomBytes } = require('node:crypto');
 
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+const path = require('node:path');
+const { readFileSync } = require('node:fs');
+const { once } = require('node:events');
 
 require('dotenv').config({ path: '.env', quiet: true });
 
@@ -16,6 +19,7 @@ require('dotenv').config({ path: '.env', quiet: true });
     .withDatabase('speckvue_test')
     .start();
   let redisContainer;
+  let api;
   try {
     const redisPassword = randomBytes(24).toString('base64url');
     redisContainer = await new GenericContainer(
@@ -84,7 +88,70 @@ require('dotenv').config({ path: '.env', quiet: true });
       'e2e',
       '--runInBand',
     ]);
+    if (process.argv.includes('--browser')) {
+      const port = Number(process.env.E2E_API_PORT);
+      if (!Number.isInteger(port) || port < 1024 || port > 65535)
+        throw Error('Configure E2E_API_PORT in .env');
+      api = spawn(process.execPath, ['dist/src/main.js'], {
+        env: {
+          ...env,
+          REDIS_KEY_PREFIX: env.REDIS_KEY_PREFIX + ':browser',
+          APP_PORT: String(port),
+          APP_HOST: '127.0.0.1',
+          APP_URL: 'http://localhost:' + port,
+          SIGNUP_ENABLED: 'true',
+        },
+        stdio: 'inherit',
+        windowsHide: true,
+      });
+      api.on('error', () => {});
+      let ready = false;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        if (api.exitCode !== null) throw Error('Isolated browser API stopped');
+        try {
+          ready = (
+            await fetch('http://localhost:' + port + '/api/v1/health/ready', {
+              signal: AbortSignal.timeout(1000),
+            })
+          ).ok;
+        } catch {
+          /* Wait for the owned API startup. */
+        }
+        if (ready) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!ready) throw Error('Isolated browser API did not become ready');
+      const frontend = path.resolve(__dirname, '../../speckvue-finance-web');
+      const local = require('dotenv').parse(
+        readFileSync(path.join(frontend, '.env')),
+      );
+      const frontendRequire = require('node:module').createRequire(
+        path.join(frontend, 'package.json'),
+      );
+      const browserEnv = {
+        ...process.env,
+        ...frontendRequire('dotenv-expand').expand({
+          parsed: local,
+          processEnv: {},
+        }).parsed,
+        API_INTERNAL_URL: 'http://localhost:' + port,
+        E2E_AUTH_ENABLED: 'true',
+      };
+      // Use async spawn: blocking the parent would stall the owned API's stdout pipe.
+      const browser = spawn(
+        process.execPath,
+        [path.join(frontend, 'node_modules/@playwright/test/cli.js'), 'test'],
+        { cwd: frontend, env: browserEnv, stdio: 'inherit', windowsHide: true },
+      );
+      const [code] = await once(browser, 'exit');
+      if (code !== 0) throw Error('Connected browser checks failed');
+    }
   } finally {
+    if (api && api.exitCode === null) {
+      const stopped = once(api, 'exit');
+      api.kill('SIGTERM');
+      await stopped;
+    }
     if (redisContainer) await redisContainer.stop();
     await container.stop();
   }

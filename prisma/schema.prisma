@@ -9,21 +9,30 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  email        String    @unique @db.VarChar(254)
-  passwordHash String
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
-  sessions     Session[]
+  id                 String    @id @default(uuid()) @db.Uuid
+  email              String    @unique @db.VarChar(254)
+  displayName        String?   @db.VarChar(80)
+  baseCurrency       String?   @db.Char(3)
+  locale             String?   @db.VarChar(40)
+  timezone           String?   @db.VarChar(100)
+  theme              String    @default("system") @db.VarChar(6)
+  weekStartsOn       Int       @default(1)
+  onboardedAt        DateTime? @db.Timestamptz(3)
+  credentialsVersion Int       @default(0)
+  passwordHash       String
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+  sessions           Session[]
 }
 
 model Session {
-  id        String   @id @default(uuid()) @db.Uuid
-  tokenHash String   @unique @db.Char(64)
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime @db.Timestamptz(3)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  id                 String   @id @default(uuid()) @db.Uuid
+  credentialsVersion Int      @default(0)
+  tokenHash          String   @unique @db.Char(64)
+  userId             String   @db.Uuid
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt          DateTime @db.Timestamptz(3)
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([expiresAt])
   @@index([userId])

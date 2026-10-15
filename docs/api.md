@@ -10,7 +10,9 @@ The default base is http://localhost:4000/api/v1; prefix and URI version come fr
 | POST /auth/signin  | Allowed Origin        | Generic 401 or HttpOnly session cookie and csrfToken                   |
 | GET /auth/csrf     | Session               | Regenerate deterministic session-bound CSRF bootstrap                  |
 | POST /auth/signout | Session, CSRF, Origin | 204 and session invalidation                                           |
-| GET /users/me      | Session               | id, email, createdAt only                                              |
+| GET /users/me      | Session               | Safe profile and preferences                                           |
+
+Additional endpoints: POST /users/me/onboarding, PATCH /users/me/preferences, GET /auth/sessions, DELETE /auth/sessions/:id, POST /auth/signout-all and POST /auth/password. See [accounts and preferences](accounts-and-preferences.md) for payloads and behavior.
 
 All nonpublic endpoints deny anonymous requests. Unknown DTO fields are rejected. Financial feature endpoints are not included.
 

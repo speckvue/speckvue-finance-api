@@ -24,6 +24,26 @@ class SignupDto extends SigninDto {
   declare password: string;
 }
 
+class ChangePasswordDto {
+  @ApiProperty({ writeOnly: true })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  currentPassword!: string;
+  @ApiProperty({ writeOnly: true, minLength: 12, maxLength: 128 })
+  @IsString()
+  @MinLength(12)
+  @MaxLength(128)
+  newPassword!: string;
+}
+
+class SessionResponse {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty({ type: String, format: 'date-time' }) createdAt!: Date;
+  @ApiProperty({ type: String, format: 'date-time' }) expiresAt!: Date;
+  @ApiProperty() current!: boolean;
+}
+
 class CsrfResponse {
   @ApiProperty()
   csrfToken!: string;
@@ -34,6 +54,13 @@ class AuthStatusResponse {
   message!: string;
 }
 
-export { AuthStatusResponse, CsrfResponse, SigninDto, SignupDto };
+export {
+  AuthStatusResponse,
+  ChangePasswordDto,
+  CsrfResponse,
+  SessionResponse,
+  SigninDto,
+  SignupDto,
+};
 
 export default SigninDto;

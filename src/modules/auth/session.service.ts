@@ -32,7 +32,11 @@ class SessionService {
     );
   }
 
-  async create(userId: string, previous?: string): Promise<string> {
+  async create(
+    userId: string,
+    previous?: string,
+    credentialsVersion = 0,
+  ): Promise<string> {
     const token = randomBytes(32).toString('base64url');
     await this.db.$transaction(async (tx) => {
       if (previous)
@@ -45,6 +49,7 @@ class SessionService {
       await tx.session.create({
         data: {
           userId,
+          credentialsVersion,
           tokenHash: this.digest(token),
           expiresAt: new Date(
             Date.now() + this.settings.get('SESSION_TTL_SECONDS') * 1000,
@@ -59,9 +64,21 @@ class SessionService {
     if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
     const record = await this.db.session.findUnique({
       where: { tokenHash: this.digest(token) },
-      select: { id: true, userId: true, tokenHash: true, expiresAt: true },
+      select: {
+        id: true,
+        userId: true,
+        tokenHash: true,
+        expiresAt: true,
+        credentialsVersion: true,
+        user: { select: { credentialsVersion: true } },
+      },
     });
-    if (!record || record.expiresAt <= new Date()) return undefined;
+    if (
+      !record ||
+      record.expiresAt <= new Date() ||
+      record.credentialsVersion !== record.user.credentialsVersion
+    )
+      return undefined;
     return {
       userId: record.userId,
       sessionId: record.id,
@@ -71,6 +88,38 @@ class SessionService {
 
   async invalidate(sessionId: string): Promise<void> {
     await this.db.session.deleteMany({ where: { id: sessionId } });
+  }
+  async list(userId: string, sessionId: string) {
+    const user = await this.db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { credentialsVersion: true },
+    });
+    const sessions = await this.db.session.findMany({
+      where: {
+        userId,
+        expiresAt: { gt: new Date() },
+        credentialsVersion: user.credentialsVersion,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true, createdAt: true, expiresAt: true },
+    });
+    return sessions.map((session) => ({
+      ...session,
+      current: session.id === sessionId,
+    }));
+  }
+  async invalidateAll(userId: string) {
+    await this.db.user.update({
+      where: { id: userId },
+      data: {
+        credentialsVersion: { increment: 1 },
+        sessions: { deleteMany: {} },
+      },
+    });
+  }
+  async revoke(userId: string, sessionId: string) {
+    return this.db.session.deleteMany({ where: { id: sessionId, userId } });
   }
 }
 

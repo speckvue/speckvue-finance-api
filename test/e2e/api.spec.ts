@@ -121,7 +121,10 @@ describe('API contracts and isolation', () => {
       .get(prefix + '/users/me')
       .set('Cookie', aliceCookie)
       .expect(200);
-    expect(Object.keys(me.body).sort()).toEqual(['createdAt', 'email', 'id']);
+    expect(me.body.email).toBe(emails[0]);
+    expect(me.body.onboardedAt).toBeNull();
+    expect(me.body.passwordHash).toBeUndefined();
+    expect(me.body.credentialsVersion).toBeUndefined();
   });
   test('removed financial routes are unavailable', async () => {
     await request(app.getHttpServer())
@@ -141,6 +144,99 @@ describe('API contracts and isolation', () => {
       .set('Origin', 'http://evil.invalid')
       .set('X-CSRF-Token', csrf)
       .expect(403);
+  });
+  test('onboarding validates preferences and isolates users', async () => {
+    const values = {
+      displayName: 'Alex',
+      baseCurrency: 'INR',
+      locale: 'en-IN',
+      timezone: 'Asia/Kolkata',
+      theme: 'dark',
+      weekStartsOn: 1,
+    };
+    const save = (body: object) =>
+      request(app.getHttpServer())
+        .post(prefix + '/users/me/onboarding')
+        .set('Cookie', aliceCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', csrf)
+        .send(body);
+    await save({ ...values, userId: 'injected' }).expect(400);
+    await save({ ...values, timezone: 'Invalid/Zone' }).expect(400);
+    await save({ ...values, baseCurrency: 'ZZZ' }).expect(400);
+    await save({ ...values, displayName: '   ' }).expect(400);
+    const first = await save(values).expect(200);
+    expect(first.body.displayName).toBe('Alex');
+    expect(first.body.onboardedAt).toEqual(expect.any(String));
+    const again = await save(values).expect(200);
+    expect(again.body.onboardedAt).toBe(first.body.onboardedAt);
+    const other = await request(app.getHttpServer())
+      .get(prefix + '/users/me')
+      .set('Cookie', bobCookie)
+      .expect(200);
+    expect(other.body.onboardedAt).toBeNull();
+    const changed = await request(app.getHttpServer())
+      .patch(prefix + '/users/me/preferences')
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send({
+        ...values,
+        theme: 'light',
+        locale: 'de-DE',
+        timezone: 'Europe/Berlin',
+      })
+      .expect(200);
+    expect(changed.body.theme).toBe('light');
+    expect(changed.body.onboardedAt).toBe(first.body.onboardedAt);
+  });
+  test('session list omits secrets and revocation is owner scoped', async () => {
+    const response = await request(app.getHttpServer())
+      .get(prefix + '/auth/sessions')
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    expect(response.body[0].current).toBe(true);
+    expect(Object.keys(response.body[0]).sort()).toEqual([
+      'createdAt',
+      'current',
+      'expiresAt',
+      'id',
+    ]);
+    const bob = await request(app.getHttpServer())
+      .get(prefix + '/auth/sessions')
+      .set('Cookie', bobCookie)
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(prefix + '/auth/sessions/' + bob.body[0].id)
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .expect(404);
+    const another = await request(app.getHttpServer())
+      .post(prefix + '/auth/signin')
+      .set('Origin', origin)
+      .send({ email: emails[0], password })
+      .expect(200);
+    const anotherCookie = String(another.headers['set-cookie'][0]).split(
+      ';',
+    )[0];
+    const list = await request(app.getHttpServer())
+      .get(prefix + '/auth/sessions')
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    const target = list.body.find(
+      (session: { current: boolean }) => !session.current,
+    );
+    await request(app.getHttpServer())
+      .delete(prefix + '/auth/sessions/' + target.id)
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(prefix + '/users/me')
+      .set('Cookie', anotherCookie)
+      .expect(401);
   });
   test('rotates presented sessions and rejects expired sessions', async () => {
     const previous = bobCookie;
@@ -175,6 +271,57 @@ describe('API contracts and isolation', () => {
     await request(app.getHttpServer())
       .get(prefix + '/users/me')
       .set('Cookie', aliceCookie)
+      .expect(401);
+  });
+  test('password changes reject bad passwords and invalidate every session', async () => {
+    const signin = () =>
+      request(app.getHttpServer())
+        .post(prefix + '/auth/signin')
+        .set('Origin', origin)
+        .send({ email: emails[0], password })
+        .expect(200);
+    const first = await signin();
+    const second = await signin();
+    const cookie = String(first.headers['set-cookie'][0]).split(';')[0];
+    const secondCookie = String(second.headers['set-cookie'][0]).split(';')[0];
+    const change = (currentPassword: string) =>
+      request(app.getHttpServer())
+        .post(prefix + '/auth/password')
+        .set('Cookie', cookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', first.body.csrfToken)
+        .send({ currentPassword, newPassword: password + 'new' });
+    await change('wrong').expect(401);
+    await change(password).expect(204);
+    for (const c of [cookie, secondCookie])
+      await request(app.getHttpServer())
+        .get(prefix + '/users/me')
+        .set('Cookie', c)
+        .expect(401);
+    await request(app.getHttpServer())
+      .post(prefix + '/auth/signin')
+      .set('Origin', origin)
+      .send({ email: emails[0], password })
+      .expect(401);
+    const next = await request(app.getHttpServer())
+      .post(prefix + '/auth/signin')
+      .set('Origin', origin)
+      .send({ email: emails[0], password: password + 'new' })
+      .expect(200);
+    const nextCookie = String(next.headers['set-cookie'][0]).split(';')[0];
+    await request(app.getHttpServer())
+      .get(prefix + '/users/me')
+      .set('Cookie', nextCookie)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(prefix + '/auth/signout-all')
+      .set('Cookie', nextCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', next.body.csrfToken)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(prefix + '/users/me')
+      .set('Cookie', nextCookie)
       .expect(401);
   });
   test('rate limits authentication attempts', async () => {

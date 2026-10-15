@@ -1,8 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
@@ -22,7 +26,9 @@ import type { ApiRequest } from '../../common/types/http';
 import SettingsService from '../../config/settings.service';
 import {
   AuthStatusResponse,
+  ChangePasswordDto,
   CsrfResponse,
+  SessionResponse,
   SigninDto,
   SignupDto,
 } from './auth.dto';
@@ -57,10 +63,11 @@ class AuthController {
     @Req() req: ApiRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const userId = await this.auth.signin(dto);
+    const user = await this.auth.signin(dto);
     const token = await this.sessions.create(
-      userId,
+      user.id,
       req.cookies[this.settings.get('SESSION_COOKIE_NAME')],
+      user.credentialsVersion,
     );
     res.cookie(this.settings.get('SESSION_COOKIE_NAME'), token, {
       ...this.cookieOptions(),
@@ -94,6 +101,62 @@ class AuthController {
       this.settings.get('SESSION_COOKIE_NAME'),
       this.cookieOptions(),
     );
+  }
+
+  @Post('password')
+  @HttpCode(204)
+  @ApiNoContentResponse()
+  async changePassword(
+    @Req() req: ApiRequest,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.auth.changePassword(req.identity!.userId, dto);
+    res.clearCookie(
+      this.settings.get('SESSION_COOKIE_NAME'),
+      this.cookieOptions(),
+    );
+  }
+
+  @Get('sessions')
+  @ApiOkResponse({ type: [SessionResponse] })
+  sessionsList(@Req() req: ApiRequest) {
+    return this.sessions.list(req.identity!.userId, req.identity!.sessionId);
+  }
+
+  @Post('signout-all')
+  @HttpCode(204)
+  @ApiNoContentResponse()
+  async signoutAll(
+    @Req() req: ApiRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.sessions.invalidateAll(req.identity!.userId);
+    res.clearCookie(
+      this.settings.get('SESSION_COOKIE_NAME'),
+      this.cookieOptions(),
+    );
+    this.logger.info('Authentication audit', {
+      event: 'signout_all_succeeded',
+    });
+  }
+
+  @Delete('sessions/:id')
+  @HttpCode(204)
+  @ApiNoContentResponse()
+  async revoke(
+    @Req() req: ApiRequest,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (!(await this.sessions.revoke(req.identity!.userId, id)).count)
+      throw new NotFoundException();
+    this.logger.info('Authentication audit', { event: 'session_revoked' });
+    if (id === req.identity!.sessionId)
+      res.clearCookie(
+        this.settings.get('SESSION_COOKIE_NAME'),
+        this.cookieOptions(),
+      );
   }
 
   private cookieOptions() {

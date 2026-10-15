@@ -1,7 +1,9 @@
 # Verification
 
-The template cleanup removes sample features and updates checks for the remaining infrastructure. Run npm run check, npm run test:ci and npm run build. Run npm run test:database for disposable PostgreSQL/Redis integration and HTTP tests, including authentication, CSRF, expiry, migrations and the removal of account endpoints.
+Verified on 2026-10-16 for authentication, onboarding and preferences.
 
-Docker production and Watch configurations remain supported. Earlier sample-feature test counts are historical and do not describe this template.
+16 API unit tests and 23 real PostgreSQL/Redis integration and HTTP tests passed. Tests covered migrations, authentication, strict preferences, user isolation, stable onboarding timestamps, session ownership and revocation, password changes and expiry.
 
-Verified on 2026-10-15: 16 unit tests and 20 disposable PostgreSQL/Redis integration and HTTP tests passed. Strict TypeScript, ESLint, Prettier, native Nest build, and Docker image builds passed. Tests confirm authentication, CSRF, throttling, session expiry, archived table isolation and unavailable account routes.
+Strict TypeScript, ESLint, Prettier and native production builds passed. Docker production image builds passed during the account implementation. The final checkout is running in Docker development mode: Next.js uses webpack development mode and Nest uses --watch. Compose Watch processes are active in both repositories; temporary file synchronization probes were verified and removed. PostgreSQL and both Redis services are healthy.
+
+No SMTP service is configured. Email verification and forgotten-password delivery remain unavailable. No test accounts were added to the regular application database.
