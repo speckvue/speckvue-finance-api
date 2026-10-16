@@ -9,36 +9,85 @@ datasource db {
 }
 
 model User {
-  id                 String    @id @default(uuid()) @db.Uuid
-  email              String    @unique @db.VarChar(254)
-  displayName        String?   @db.VarChar(80)
-  baseCurrency       String?   @db.Char(3)
-  locale             String?   @db.VarChar(40)
-  timezone           String?   @db.VarChar(100)
-  theme              String    @default("system") @db.VarChar(6)
-  weekStartsOn       Int       @default(1)
-  onboardedAt        DateTime? @db.Timestamptz(3)
-  credentialsVersion Int       @default(0)
+  id                 String              @id @default(uuid()) @db.Uuid
+  email              String              @unique @db.VarChar(254)
+  displayName        String?             @db.VarChar(80)
+  baseCurrency       String?             @db.Char(3)
+  locale             String?             @db.VarChar(40)
+  timezone           String?             @db.VarChar(100)
+  theme              String              @default("system") @db.VarChar(6)
+  weekStartsOn       Int                 @default(1)
+  onboardedAt        DateTime?           @db.Timestamptz(3)
+  credentialsVersion Int                 @default(0)
   passwordHash       String
-  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
   sessions           Session[]
   accounts           FinancialAccount[]
+  categories         Category[]
+  payees             Payee[]
+  transactions       ManualTransaction[]
+}
+
+model Payee {
+  transactions ManualTransaction[]
+  id           String              @id @default(uuid()) @db.Uuid
+  userId       String              @db.Uuid
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  name         String              @db.VarChar(100)
+  kind         String              @db.VarChar(12)
+  notes        String?             @db.VarChar(500)
+  archivedAt   DateTime?           @db.Timestamptz(3)
+  mergedIntoId String?             @db.Uuid
+  mergedAt     DateTime?           @db.Timestamptz(3)
+  mergedInto   Payee?              @relation("PayeeMerges", fields: [userId, mergedIntoId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction, map: "Payee_merge_owner_fkey")
+  mergedFrom   Payee[]             @relation("PayeeMerges")
+  createdAt    DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@unique([userId, id])
+  @@index([userId, mergedIntoId, archivedAt, createdAt, id])
+}
+
+model Category {
+  transactionSplits TransactionSplit[]
+  id                String             @id @default(uuid()) @db.Uuid
+  userId            String             @db.Uuid
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kind              String             @db.VarChar(7)
+  name              String             @db.VarChar(60)
+  description       String?            @db.VarChar(240)
+  color             String             @db.VarChar(10)
+  icon              String             @db.VarChar(12)
+  parentId          String?            @db.Uuid
+  parent            Category?          @relation("CategoryChildren", fields: [userId, parentId, kind], references: [userId, id, kind], onDelete: NoAction, onUpdate: NoAction, map: "Category_parent_owner_kind_fkey")
+  children          Category[]         @relation("CategoryChildren")
+  position          Int                @default(0)
+  archivedAt        DateTime?          @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@unique([userId, id, kind])
+  @@index([userId, kind, parentId, position, id])
 }
 
 model FinancialAccount {
-  id                 String    @id @default(uuid()) @db.Uuid
-  userId             String    @db.Uuid
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name               String    @db.VarChar(80)
-  type               String    @db.VarChar(20)
-  currency           String    @db.Char(3)
-  openingBalance     Decimal   @db.Decimal(20, 4)
-  openingBalanceDate DateTime  @db.Date
-  archivedAt         DateTime? @db.Timestamptz(3)
-  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+  transactions       ManualTransaction[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  userId             String              @db.Uuid
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String              @db.VarChar(80)
+  type               String              @db.VarChar(20)
+  currency           String              @db.Char(3)
+  institution        String?             @db.VarChar(120)
+  notes              String?             @db.VarChar(1000)
+  openingBalance     Decimal             @db.Decimal(20, 4)
+  openingBalanceDate DateTime            @db.Date
+  archivedAt         DateTime?           @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
 
+  @@unique([userId, id])
   @@index([userId, archivedAt, id])
 }
 
@@ -53,4 +102,62 @@ model Session {
 
   @@index([expiresAt])
   @@index([userId])
+}
+
+// Posted manual activity; deletion reverses its balance effect without removing history.
+model ManualTransaction {
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @db.Uuid
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  accountId   String                @db.Uuid
+  account     FinancialAccount      @relation(fields: [userId, accountId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
+  payeeId     String?               @db.Uuid
+  payee       Payee?                @relation(fields: [userId, payeeId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
+  kind        String                @db.VarChar(7)
+  amount      Decimal               @db.Decimal(20, 4)
+  date        DateTime              @db.Date
+  notes       String?               @db.VarChar(2000)
+  revision    Int                   @default(1)
+  requestId   String                @db.Uuid
+  requestHash String                @db.Char(64)
+  deletedAt   DateTime?             @db.Timestamptz(3)
+  createdAt   DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime              @updatedAt @db.Timestamptz(3)
+  splits      TransactionSplit[]
+  history     TransactionRevision[]
+
+  @@unique([userId, id])
+  @@unique([userId, requestId])
+  @@index([userId, date, id])
+  @@index([userId, accountId, deletedAt])
+}
+
+model TransactionSplit {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @db.Uuid
+  transactionId String            @db.Uuid
+  transaction   ManualTransaction @relation(fields: [userId, transactionId], references: [userId, id], onDelete: Cascade, onUpdate: NoAction)
+  categoryId    String?           @db.Uuid
+  categoryKind  String            @db.VarChar(7)
+  category      Category?         @relation(fields: [userId, categoryId, categoryKind], references: [userId, id, kind], onDelete: NoAction, onUpdate: NoAction)
+  amount        Decimal           @db.Decimal(20, 4)
+  position      Int
+
+  @@unique([transactionId, position])
+  @@index([userId, categoryId])
+}
+
+// Immutable snapshots retain the labels and values visible at the time of each change.
+model TransactionRevision {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String            @db.Uuid
+  transactionId String            @db.Uuid
+  transaction   ManualTransaction @relation(fields: [userId, transactionId], references: [userId, id], onDelete: Cascade, onUpdate: NoAction)
+  revision      Int
+  action        String            @db.VarChar(7)
+  snapshot      Json
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@unique([transactionId, revision])
+  @@index([userId, transactionId, revision])
 }

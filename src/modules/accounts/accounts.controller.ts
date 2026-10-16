@@ -20,6 +20,7 @@ import ApiProblems from '../../common/decorators/api-problems';
 import type { ApiRequest } from '../../common/types/http';
 import {
   AccountInput,
+  AccountOptionsResponse,
   AccountResponse,
   AccountsQuery,
   AccountsResponse,
@@ -37,6 +38,12 @@ class AccountsController {
   @ApiOkResponse({ type: AccountsResponse })
   list(@Req() req: ApiRequest, @Query() query: AccountsQuery) {
     return this.accounts.list(req.identity!.userId, query);
+  }
+
+  @Get('options')
+  @ApiOkResponse({ type: AccountOptionsResponse })
+  options(@Req() req: ApiRequest) {
+    return this.accounts.options(req.identity!.userId);
   }
 
   @Get(':id')

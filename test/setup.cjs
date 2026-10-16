@@ -22,3 +22,6 @@ for (const key of [
     process.env[key] = randomBytes(24).toString('base64url');
 
 process.env.AUTH_THROTTLE_LIMIT = '100';
+
+// ConfigModule validates at import time, so isolate rate limits before importing each suite.
+process.env.REDIS_KEY_PREFIX += ':suite:' + randomBytes(8).toString('hex');

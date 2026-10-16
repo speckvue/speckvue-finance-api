@@ -1,12 +1,24 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import AppLogger from '../../common/logging/app-logger.service';
 import PrismaService from '../../database/prisma.service';
-import type { FinancialAccount } from '../../generated/prisma/client';
+import { Prisma, type FinancialAccount } from '../../generated/prisma/client';
 import type { AccountInput, AccountsQuery } from './accounts.dto';
+
+const currencies = Intl.supportedValuesOf('currency');
+const currencyDigits = Object.fromEntries(
+  currencies.map((currency) => [
+    currency,
+    new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency,
+    }).resolvedOptions().maximumFractionDigits!,
+  ]),
+);
 
 /** Stores owner-scoped financial accounts without converting money to floating point. */
 @Injectable()
@@ -16,12 +28,43 @@ class AccountsService {
     private readonly logger: AppLogger,
   ) {}
 
-  private serialize(account: FinancialAccount) {
+  /** Batch by account and read with its metadata in one repeatable database snapshot. */
+  private async balances(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    ids: string[],
+  ) {
+    if (!ids.length)
+      return new Map<
+        string,
+        { balance: Prisma.Decimal; hasHistory: boolean }
+      >();
+    const rows = await tx.$queryRaw<
+      Array<{ id: string; balance: Prisma.Decimal; hasHistory: boolean }>
+    >(Prisma.sql`
+      SELECT a."id", a."openingBalance" + COALESCE(SUM(CASE
+        WHEN t."deletedAt" IS NOT NULL THEN 0 WHEN t."kind" = 'expense' THEN -t."amount" ELSE t."amount" END),0) AS balance,
+        (COUNT(t."id") > 0 OR EXISTS(SELECT 1 FROM "TransactionRevision" r
+          WHERE r."userId" = a."userId" AND r."snapshot"->>'accountId' = a."id"::text)) AS "hasHistory"
+      FROM "FinancialAccount" a LEFT JOIN "ManualTransaction" t
+        ON t."userId" = a."userId" AND t."accountId" = a."id"
+      WHERE a."userId" = ${userId}::uuid AND a."id" IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
+      GROUP BY a."id"`);
+    return new Map(rows.map((row) => [row.id, row]));
+  }
+  private serialize(
+    account: FinancialAccount,
+    ledger: { balance: Prisma.Decimal; hasHistory: boolean },
+  ) {
     return {
+      currentBalance: ledger.balance.toFixed(4),
+      hasTransactions: ledger.hasHistory,
       id: account.id,
       name: account.name,
       type: account.type,
       currency: account.currency,
+      institution: account.institution,
+      notes: account.notes,
       archivedAt: account.archivedAt,
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
@@ -30,73 +73,149 @@ class AccountsService {
     };
   }
 
-  private input(dto: AccountInput) {
+  async options(userId: string) {
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    if (!user) throw new NotFoundException();
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: user.timezone ?? 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const date = Object.fromEntries(
+      parts.map(({ type, value }) => [type, value]),
+    );
+    return {
+      currencies,
+      currencyDigits,
+      today: `${date.year}-${date.month}-${date.day}`,
+    };
+  }
+
+  private async input(userId: string, dto: AccountInput) {
     const name = dto.name.trim();
     if (!name || /\p{Cc}/u.test(name))
       throw new BadRequestException('Invalid account name');
-    if (!Intl.supportedValuesOf('currency').includes(dto.currency))
+    if (!currencies.includes(dto.currency))
       throw new BadRequestException('Unsupported currency');
-    const digits = new Intl.NumberFormat('en', {
-      style: 'currency',
-      currency: dto.currency,
-    }).resolvedOptions().maximumFractionDigits!;
+    const digits = currencyDigits[dto.currency]!;
     if (
       (dto.openingBalance.split('.')[1] ?? '').replace(/0+$/, '').length >
       digits
     )
       throw new BadRequestException('Amount exceeds currency precision');
-    if (dto.openingBalanceDate > new Date().toISOString().slice(0, 10))
+    const { today } = await this.options(userId);
+    if (dto.openingBalanceDate > today)
       throw new BadRequestException(
         'Opening balance date cannot be in the future',
       );
     return {
       ...dto,
       name,
+      institution: this.optionalText(dto.institution, false),
+      notes: this.optionalText(dto.notes, true),
       openingBalanceDate: new Date(dto.openingBalanceDate + 'T00:00:00.000Z'),
     };
   }
 
+  private optionalText(value: string | undefined, multiline: boolean) {
+    const text = value?.trim() || null;
+    if (
+      text &&
+      Array.from(text).some(
+        (character) =>
+          /\p{Cc}/u.test(character) &&
+          !(multiline && '\n\r\t'.includes(character)),
+      )
+    )
+      throw new BadRequestException('Invalid account details');
+    return text;
+  }
+
   async list(userId: string, query: AccountsQuery) {
-    const rows = await this.db.financialAccount.findMany({
-      where: {
-        userId,
-        archivedAt: query.status === 'archived' ? { not: null } : null,
-        ...(query.after ? { id: { gt: query.after } } : {}),
+    return this.db.$transaction(
+      async (tx) => {
+        const rows = await tx.financialAccount.findMany({
+          where: {
+            userId,
+            archivedAt: query.status === 'archived' ? { not: null } : null,
+            ...(query.after ? { id: { gt: query.after } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: 51,
+        });
+        const visible = rows.slice(0, 50);
+        const balances = await this.balances(
+          tx,
+          userId,
+          visible.map((row) => row.id),
+        );
+        return {
+          items: visible.map((row) =>
+            this.serialize(row, balances.get(row.id)!),
+          ),
+          nextCursor: rows.length > 50 ? rows[49]!.id : null,
+        };
       },
-      orderBy: { id: 'asc' },
-      take: 51,
-    });
-    return {
-      items: rows.slice(0, 50).map((row) => this.serialize(row)),
-      nextCursor: rows.length > 50 ? rows[49]!.id : null,
-    };
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async get(userId: string, id: string) {
-    const account = await this.db.financialAccount.findFirst({
-      where: { userId, id },
-    });
-    if (!account) throw new NotFoundException('Account not found');
-    return this.serialize(account);
+    return this.db.$transaction(
+      async (tx) => {
+        const account = await tx.financialAccount.findFirst({
+          where: { userId, id },
+        });
+        if (!account) throw new NotFoundException('Account not found');
+        const balances = await this.balances(tx, userId, [id]);
+        return this.serialize(account, balances.get(id)!);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async create(userId: string, dto: AccountInput) {
     const account = await this.db.financialAccount.create({
-      data: { ...this.input(dto), userId },
+      data: { ...(await this.input(userId, dto)), userId },
     });
     this.logger.info('Account created', {
       event: 'account_created',
       accountId: account.id,
     });
-    return this.serialize(account);
+    return this.get(userId, account.id);
   }
 
   async update(userId: string, id: string, dto: AccountInput) {
-    const result = await this.db.financialAccount.updateMany({
-      where: { userId, id, archivedAt: null },
-      data: this.input(dto),
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      const row = await tx.financialAccount.findFirst({
+        where: { userId, id },
+      });
+      if (!row || row.archivedAt)
+        throw new NotFoundException('Active account not found');
+      const history = (await this.balances(tx, userId, [id])).get(
+        id,
+      )!.hasHistory;
+      if (
+        history &&
+        (!row.openingBalance.eq(dto.openingBalance) ||
+          row.openingBalanceDate.toISOString().slice(0, 10) !==
+            dto.openingBalanceDate)
+      )
+        throw new ConflictException(
+          'Opening balance and date are locked after transaction history exists',
+        );
+      if (row.currency !== dto.currency)
+        throw new ConflictException('Account currency cannot be changed');
+      await tx.financialAccount.update({
+        where: { id },
+        data: await this.input(userId, dto),
+      });
     });
-    if (!result.count) throw new NotFoundException('Active account not found');
     this.logger.info('Account updated', {
       event: 'account_updated',
       accountId: id,
@@ -105,10 +224,14 @@ class AccountsService {
   }
 
   async archive(userId: string, id: string, archived: boolean) {
-    await this.get(userId, id);
-    await this.db.financialAccount.updateMany({
-      where: { userId, id, archivedAt: archived ? null : { not: null } },
-      data: { archivedAt: archived ? new Date() : null },
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      if (!(await tx.financialAccount.findFirst({ where: { userId, id } })))
+        throw new NotFoundException('Account not found');
+      await tx.financialAccount.updateMany({
+        where: { userId, id, archivedAt: archived ? null : { not: null } },
+        data: { archivedAt: archived ? new Date() : null },
+      });
     });
     this.logger.info('Account status changed', {
       event: archived ? 'account_archived' : 'account_restored',

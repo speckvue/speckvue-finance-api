@@ -13,3 +13,35 @@ No SMTP service is configured. Email verification and forgotten-password deliver
 The financial-account migration was applied to development without removing users or sessions. The API build, strict TypeScript, ESLint, Prettier, and 16 unit tests passed. Thirty HTTP/database tests passed against disposable PostgreSQL and Redis, covering exact decimals, supported account types, currency precision, invalid dates and payloads, owner isolation, archiving/restoration, pagination, and normal CSRF token request limits alongside strict signin limits.
 
 The sibling frontend's latest production build and 53 unit tests passed. Financial account browser review uses temporary unique users; the review runner removes those users and their accounts afterward.
+
+## Accounts completion — 2026-10-16
+
+The completed Accounts phase passed 19 API unit tests and 33 HTTP/database tests against disposable PostgreSQL and Redis. Added checks cover local-date boundaries, authoritative currency metadata, immutable account currency, optional details and clearing, and profile-currency changes without revaluation. Existing checks still cover exact decimals, all six account types, owner isolation, validation, pagination, and archive/restore.
+
+Native production build, strict TypeScript, ESLint, Prettier and whitespace checks passed. Both additive migrations were applied to development without resetting data. The API development container is healthy and Compose Watch synchronization was verified with a temporary probe that was removed. Financial rules and requirements for future ledger ownership are documented in [financial foundation](financial-foundation.md).
+
+The frontend passed 59 unit tests, its production build and static checks. Live browser checks passed account creation, optional institution/notes, detail navigation, edit dialogs with locked currency, persistence, archive/restore, missing-account handling, mobile/desktop layouts and accessibility in light/dark themes. Temporary browser-review users and their accounts were removed. This was targeted live Docker verification, not a new run of the full standalone Playwright suite.
+
+## Categories — 2026-10-17
+
+Nineteen API unit tests and 45 real PostgreSQL/Redis HTTP/database tests passed. The category suite covers strict inputs, session/CSRF protections, owner isolation for every action and parent assignment, normalized sibling-name uniqueness, customization, immutable type, hierarchy/cycle restrictions, root/child ordering, archive timestamps, branch archival, explicit restoration, assignment guard, database owner/type foreign keys, concurrent duplicates and archive/create races, and the 500-category bound. Test databases are disposable; regular application data was not reset.
+
+Prisma generation, native API production build, TypeScript, ESLint and Prettier passed. The Category migration and runtime-role grant were applied to development. Its exported assignment guard is ready for the later ledger step; no transaction module or sample usage data was introduced. The sibling frontend passed 75 unit tests and its production build. Live mobile/dark and desktop/light review checked the complete category flow and accessibility. Temporary review users were removed after every run. Both development services remain healthy with Compose Watch processes running.
+
+## Payees — 2026-10-17
+
+Nineteen API unit tests and 59 real PostgreSQL/Redis HTTP/database tests passed. Payee checks cover all three types, legitimate duplicate display names, strict inputs and owner isolation, literal wildcard search, notes/name filters, tied-timestamp pagination, rename/type correction, idempotent archive/restore, merge-source retention, idempotent merges, target constraints, flattened chains, canonical assignment/historical resolution, database ownership constraints and concurrent opposing-merge/archive races.
+
+Prisma generation, production build, TypeScript, ESLint and Prettier passed. The additive Payee migration and runtime grants preserved existing records. Docker Desktop became unavailable during the first database-run attempt; its engine was restarted, the development services and Watch processes recovered, and the disposable database tests then completed successfully. No application data was reset.
+
+The frontend passed 89 tests and its production build. Live desktop/light and mobile/dark checks covered all payee types, rename/persistence, merge selection and acknowledgement, source notes and IDs, searching retained names, status/type filters, archive/restore, keyboard behavior, accessibility and responsive layout. All temporary browser-review users and their payees were removed. Transaction guards are ready for the next phase; the ledger is not yet implemented.
+
+## Manual transactions — 2026-10-17
+
+Nineteen API unit tests, 77 real PostgreSQL/Redis HTTP/database tests and 98 frontend tests passed. The ledger tests cover signed income/expense/refund movements, exact large/fractional values, zero/three-decimal currencies, balanced allocations, strict validation, owner isolation at each reference, duplicate-create retries, concurrent stale edits, immutable revisions and history pagination, same-currency account moves, opening locks after moved/deleted history, archived references, merged payees, overflow rollback on create/delete, retained deletions, keyset pagination and runtime audit permissions. Account metadata and derived balances are read in a repeatable snapshot; list balance queries are batched by account.
+
+Production builds, TypeScript, ESLint, Prettier and whitespace checks passed in both repositories. Additive ledger/constraint/index migrations and runtime grants were applied without resetting application data. Test-suite Redis prefixes are assigned before configuration import, isolating deliberate throttle tests from other suites.
+
+Targeted live Docker browser review passed at 1440px/light and 390px/dark for split creation, pending form/dismissal locks, refund editing, deletion and retained history, income creation, account moves, balance persistence, opening-field locks, stationary headers/drawer and accessibility. Additional mobile/desktop checks passed maximum exact amounts and long payee names/notes without overflow. Axe WCAG 2 A/AA, 2.1 AA and 2.2 AA checks passed on inspected pages/dialogs. Temporary review users and their records were removed. The browser review caught and fixed an edit form sending response-only fields; a regression test now verifies its writable payload.
+
+The connected Transactions Playwright scenario was added for the isolated browser runner. The full standalone Playwright suite was not rerun for this phase. Next's development compiler restarted once at its memory threshold during initial browser setup; verification was repeated after compilation settled. Both Docker development services remain healthy with Compose Watch enabled.

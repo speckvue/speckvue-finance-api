@@ -146,11 +146,28 @@ describe('API contracts and isolation', () => {
       .get(prefix + '/accounts')
       .expect(401);
     await request(app.getHttpServer())
+      .get(prefix + '/accounts/options')
+      .expect(401);
+    await request(app.getHttpServer())
       .post(prefix + '/accounts')
       .set('Cookie', aliceCookie)
       .set('Origin', origin)
       .send(financialInput)
       .expect(403);
+  });
+  test('account options define authoritative currencies, precision and the owner’s local date', async () => {
+    const response = await request(app.getHttpServer())
+      .get(prefix + '/accounts/options')
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    expect(response.body.currencies).toContain('USD');
+    expect(response.body.currencyDigits).toMatchObject({
+      USD: 2,
+      JPY: 0,
+      KWD: 3,
+    });
+    expect(response.body.today).toBe(new Date().toISOString().slice(0, 10));
+    expect(response.body.userId).toBeUndefined();
   });
   test('creates a real account and preserves exact decimal precision', async () => {
     const created = await request(app.getHttpServer())
@@ -165,6 +182,8 @@ describe('API contracts and isolation', () => {
     expect(created.body.openingBalanceDate).toBe('2026-01-01');
     expect(created.body.userId).toBeUndefined();
     expect(created.body.archivedAt).toBeNull();
+    expect(created.body.institution).toBeNull();
+    expect(created.body.notes).toBeNull();
     expect(
       (
         await db.financialAccount.findUniqueOrThrow({
@@ -221,6 +240,10 @@ describe('API contracts and isolation', () => {
       { openingBalanceDate: '2026-02-30' },
       { openingBalanceDate: '2999-01-01' },
       { userId: randomUUID() },
+      { institution: 'x'.repeat(121) },
+      { institution: 'Bad\nBank' },
+      { notes: 'x'.repeat(1001) },
+      { notes: 'bad\u0000note' },
     ])
       await request(app.getHttpServer())
         .post(prefix + '/accounts')
@@ -237,6 +260,43 @@ describe('API contracts and isolation', () => {
       .get(prefix + '/accounts?status=invalid')
       .set('Cookie', aliceCookie)
       .expect(400);
+  });
+  test('currency cannot be rewritten and changing profile currency never revalues an account', async () => {
+    await request(app.getHttpServer())
+      .patch(prefix + '/accounts/' + financialId)
+      .set('Cookie', aliceCookie)
+      .set('Origin', origin)
+      .set('X-CSRF-Token', csrf)
+      .send({ ...financialInput, currency: 'EUR' })
+      .expect(409);
+    await db.user.update({
+      where: { email: emails[0] },
+      data: { baseCurrency: 'INR' },
+    });
+    const saved = await request(app.getHttpServer())
+      .get(prefix + '/accounts/' + financialId)
+      .set('Cookie', aliceCookie)
+      .expect(200);
+    expect(saved.body.currency).toBe('USD');
+    expect(saved.body.openingBalance).toBe('999999999999999.9900');
+  });
+  test('optional account details round trip safely and can be cleared', async () => {
+    const write = (details: object) =>
+      request(app.getHttpServer())
+        .patch(prefix + '/accounts/' + financialId)
+        .set('Cookie', aliceCookie)
+        .set('Origin', origin)
+        .set('X-CSRF-Token', csrf)
+        .send({ ...financialInput, ...details });
+    const updated = await write({
+      institution: ' Example bank ',
+      notes: ' First line\nSecond line ',
+    }).expect(200);
+    expect(updated.body.institution).toBe('Example bank');
+    expect(updated.body.notes).toBe('First line\nSecond line');
+    const cleared = await write({ institution: '', notes: '' }).expect(200);
+    expect(cleared.body.institution).toBeNull();
+    expect(cleared.body.notes).toBeNull();
   });
   test('supports all account types and currency-specific decimal places', async () => {
     for (const [type, currency, openingBalance] of [

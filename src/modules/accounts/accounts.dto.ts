@@ -33,6 +33,21 @@ class AccountInput {
   @Matches(/^[A-Z]{3}$/)
   currency!: string;
 
+  @ApiPropertyOptional({
+    maxLength: 120,
+    description: 'Institution name; never an account number.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  institution?: string;
+
+  @ApiPropertyOptional({ maxLength: 1000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+
   @ApiProperty({
     type: String,
     example: '1250.50',
@@ -66,10 +81,22 @@ class AccountsQuery {
 }
 
 class AccountResponse {
+  @ApiProperty({
+    type: String,
+    description:
+      'Opening balance plus non-deleted posted activity, as an exact decimal.',
+  })
+  currentBalance!: string;
+  @ApiProperty({
+    description: 'Includes deleted history; locks opening balance and date.',
+  })
+  hasTransactions!: boolean;
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ enum: accountTypes }) type!: string;
   @ApiProperty() currency!: string;
+  @ApiProperty({ type: String, nullable: true }) institution!: string | null;
+  @ApiProperty({ type: String, nullable: true }) notes!: string | null;
   @ApiProperty({ type: String }) openingBalance!: string;
   @ApiProperty({ format: 'date' }) openingBalanceDate!: string;
   @ApiProperty({ type: String, nullable: true, format: 'date-time' })
@@ -83,8 +110,21 @@ class AccountsResponse {
   @ApiProperty({ type: String, nullable: true }) nextCursor!: string | null;
 }
 
+class AccountOptionsResponse {
+  @ApiProperty({ type: [String] }) currencies!: string[];
+  @ApiProperty({ type: 'object', additionalProperties: { type: 'integer' } })
+  currencyDigits!: Record<string, number>;
+  @ApiProperty({
+    format: 'date',
+    description:
+      'Today in the account owner’s saved timezone, or UTC before onboarding.',
+  })
+  today!: string;
+}
+
 export {
   AccountInput,
+  AccountOptionsResponse,
   AccountResponse,
   AccountsQuery,
   AccountsResponse,
