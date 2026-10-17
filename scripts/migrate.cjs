@@ -38,10 +38,10 @@ const migrate = async () => {
   await client.connect();
   try {
     await client.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "User", "Session", "FinancialAccount", "Category", "Payee", "ManualTransaction", "TransactionSplit" TO "${role}"`,
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "User", "Session", "FinancialAccount", "Category", "Payee", "ManualTransaction", "TransactionSplit", "FinancialTransfer" TO "${role}"`,
     );
     await client.query(
-      `GRANT SELECT, INSERT ON TABLE "TransactionRevision" TO "${role}"`,
+      `GRANT SELECT, INSERT ON TABLE "TransactionRevision", "TransferRevision" TO "${role}"`,
     );
     await client.query(
       `REVOKE ALL ON TABLE speckvue_archive."Account" FROM "${role}"`,

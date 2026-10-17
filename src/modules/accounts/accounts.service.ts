@@ -7,6 +7,7 @@ import {
 import AppLogger from '../../common/logging/app-logger.service';
 import PrismaService from '../../database/prisma.service';
 import { Prisma, type FinancialAccount } from '../../generated/prisma/client';
+import readAccountBalances from '../ledger/account-balances';
 import type { AccountInput, AccountsQuery } from './accounts.dto';
 
 const currencies = Intl.supportedValuesOf('currency');
@@ -28,30 +29,6 @@ class AccountsService {
     private readonly logger: AppLogger,
   ) {}
 
-  /** Batch by account and read with its metadata in one repeatable database snapshot. */
-  private async balances(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    ids: string[],
-  ) {
-    if (!ids.length)
-      return new Map<
-        string,
-        { balance: Prisma.Decimal; hasHistory: boolean }
-      >();
-    const rows = await tx.$queryRaw<
-      Array<{ id: string; balance: Prisma.Decimal; hasHistory: boolean }>
-    >(Prisma.sql`
-      SELECT a."id", a."openingBalance" + COALESCE(SUM(CASE
-        WHEN t."deletedAt" IS NOT NULL THEN 0 WHEN t."kind" = 'expense' THEN -t."amount" ELSE t."amount" END),0) AS balance,
-        (COUNT(t."id") > 0 OR EXISTS(SELECT 1 FROM "TransactionRevision" r
-          WHERE r."userId" = a."userId" AND r."snapshot"->>'accountId' = a."id"::text)) AS "hasHistory"
-      FROM "FinancialAccount" a LEFT JOIN "ManualTransaction" t
-        ON t."userId" = a."userId" AND t."accountId" = a."id"
-      WHERE a."userId" = ${userId}::uuid AND a."id" IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
-      GROUP BY a."id"`);
-    return new Map(rows.map((row) => [row.id, row]));
-  }
   private serialize(
     account: FinancialAccount,
     ledger: { balance: Prisma.Decimal; hasHistory: boolean },
@@ -148,7 +125,7 @@ class AccountsService {
           take: 51,
         });
         const visible = rows.slice(0, 50);
-        const balances = await this.balances(
+        const balances = await readAccountBalances(
           tx,
           userId,
           visible.map((row) => row.id),
@@ -171,7 +148,7 @@ class AccountsService {
           where: { userId, id },
         });
         if (!account) throw new NotFoundException('Account not found');
-        const balances = await this.balances(tx, userId, [id]);
+        const balances = await readAccountBalances(tx, userId, [id]);
         return this.serialize(account, balances.get(id)!);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -197,7 +174,7 @@ class AccountsService {
       });
       if (!row || row.archivedAt)
         throw new NotFoundException('Active account not found');
-      const history = (await this.balances(tx, userId, [id])).get(
+      const history = (await readAccountBalances(tx, userId, [id])).get(
         id,
       )!.hasHistory;
       if (

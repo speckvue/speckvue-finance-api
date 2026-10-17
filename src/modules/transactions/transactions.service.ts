@@ -9,6 +9,7 @@ import AppLogger from '../../common/logging/app-logger.service';
 import PrismaService from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import CategoriesService from '../categories/categories.service';
+import { assertAccountBalances } from '../ledger/account-balances';
 import PayeesService from '../payees/payees.service';
 import type {
   TransactionCreateInput,
@@ -184,19 +185,6 @@ class TransactionsService {
       splits,
     };
   }
-  private async balance(
-    tx: Prisma.TransactionClient,
-    userId: string,
-    accountId: string,
-  ) {
-    const rows = await tx.$queryRaw<
-      Array<{ balance: Prisma.Decimal }>
-    >`SELECT a."openingBalance" + COALESCE(SUM(CASE WHEN t."kind" = 'expense' THEN -t."amount" ELSE t."amount" END),0) AS balance FROM "FinancialAccount" a LEFT JOIN "ManualTransaction" t ON t."userId" = a."userId" AND t."accountId" = a."id" AND t."deletedAt" IS NULL WHERE a."userId" = ${userId}::uuid AND a."id" = ${accountId}::uuid GROUP BY a."id"`;
-    if (rows[0]!.balance.abs().gt(limit))
-      throw new ConflictException(
-        'The resulting balance exceeds the supported range',
-      );
-  }
   private async audit(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -316,7 +304,7 @@ class TransactionsService {
       await tx.transactionSplit.createMany({
         data: splits.map((split) => ({ ...split, transactionId: row.id })),
       });
-      await this.balance(tx, userId, data.accountId);
+      await assertAccountBalances(tx, userId, [data.accountId]);
       return this.audit(tx, userId, row.id, 'created');
     });
     this.logger.info('Manual transaction recorded', {
@@ -350,9 +338,9 @@ class TransactionsService {
       await tx.transactionSplit.createMany({
         data: splits.map((split) => ({ ...split, transactionId: id })),
       });
-      await this.balance(tx, userId, previous.accountId);
+      await assertAccountBalances(tx, userId, [previous.accountId]);
       if (data.accountId !== previous.accountId)
-        await this.balance(tx, userId, data.accountId);
+        await assertAccountBalances(tx, userId, [data.accountId]);
       return this.audit(tx, userId, id, 'updated');
     });
     this.logger.info('Manual transaction updated', {
@@ -378,7 +366,7 @@ class TransactionsService {
         where: { id },
         data: { deletedAt: new Date(), revision: { increment: 1 } },
       });
-      await this.balance(tx, userId, previous.accountId);
+      await assertAccountBalances(tx, userId, [previous.accountId]);
       return this.audit(tx, userId, id, 'deleted');
     });
     this.logger.info('Manual transaction deleted', {

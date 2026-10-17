@@ -23,3 +23,5 @@ Errors use application/problem+json: {type:'about:blank',title,status,detail,cod
 Development Swagger at /docs and JSON at /openapi.json describe DTOs and cookies. Production validation disables public docs. Build then npm run openapi:generate for a machine-readable frontend contract. Generate frontend client types from this output instead of maintaining separate hand-written DTO copies. Swagger UI requires an allowed Origin for mutations; browser SameSite behavior still applies.
 
 See [manual transactions](manual-transactions.md) for ledger create/update/delete, category allocations, request keys, revision history and balance rules.
+
+See [transfers](transfers.md) for linked movements, fees, effective rates, atomic mutation and audit contracts.

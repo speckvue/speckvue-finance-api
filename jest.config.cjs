@@ -3,7 +3,6 @@ const base = {
   testEnvironment: 'node',
   moduleNameMapper: { '^(\\.{1,2}/.*)\\.js$': '$1' },
   setupFiles: ['<rootDir>/test/setup.cjs'],
-  testTimeout: 30000,
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',
@@ -13,6 +12,7 @@ const base = {
 };
 
 module.exports = {
+  testTimeout: 30000,
   projects: ['unit', 'integration', 'e2e'].map((name) => ({
     ...base,
     displayName: name,

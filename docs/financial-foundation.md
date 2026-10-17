@@ -1,6 +1,6 @@
 # Financial foundation rules
 
-These rules are the contract for later roadmap steps. Manual accounts, categories, payees and the exact-decimal manual transaction ledger are implemented. Exchange rates, transfers, reconciliation, budgets and shared access remain later steps. See [manual transactions](manual-transactions.md) for posting and audit rules.
+These rules are the contract for later roadmap steps. Manual accounts, categories, payees and the exact-decimal manual transaction ledger are implemented. Linked transfers, separate fees and effective manual exchange rates are also implemented; see [transfers](transfers.md). Market exchange rates, reconciliation, budgets and shared access remain later steps. See [manual transactions](manual-transactions.md) for posting and audit rules.
 
 The [Categories phase](categories.md) now adds income/expense classification, a composite ownership/type key, stable category identities, archive semantics and a transaction-assignment guard. The ledger must use that guard and restrictive composite references when implemented.
 

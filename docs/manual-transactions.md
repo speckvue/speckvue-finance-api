@@ -1,6 +1,6 @@
 # Manual transactions
 
-Manual postings support income, expenses and refunds. A positive exact amount is required. Income and refunds add to the account balance; expenses subtract. Refunds use expense categories so future spending reports can subtract refunds from spending. An opening balance is never income. Transfers, pending/cleared statuses, reconciliation and advanced search belong to later roadmap steps.
+Manual postings support income, expenses and refunds. A positive exact amount is required. Income and refunds add to the account balance; expenses subtract. Refunds use expense categories so future spending reports can subtract refunds from spending. An opening balance is never income. [Linked transfers](transfers.md) use their own aggregate and remain separate from manual income/expense entries. Pending/cleared statuses, reconciliation and advanced search belong to later roadmap steps.
 
 ## Contract
 

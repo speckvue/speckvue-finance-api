@@ -27,6 +27,7 @@ model User {
   categories         Category[]
   payees             Payee[]
   transactions       ManualTransaction[]
+  transfers          FinancialTransfer[]
 }
 
 model Payee {
@@ -50,28 +51,32 @@ model Payee {
 }
 
 model Category {
+  transferFees      FinancialTransfer[] @relation("TransferFeeCategory")
   transactionSplits TransactionSplit[]
-  id                String             @id @default(uuid()) @db.Uuid
-  userId            String             @db.Uuid
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  kind              String             @db.VarChar(7)
-  name              String             @db.VarChar(60)
-  description       String?            @db.VarChar(240)
-  color             String             @db.VarChar(10)
-  icon              String             @db.VarChar(12)
-  parentId          String?            @db.Uuid
-  parent            Category?          @relation("CategoryChildren", fields: [userId, parentId, kind], references: [userId, id, kind], onDelete: NoAction, onUpdate: NoAction, map: "Category_parent_owner_kind_fkey")
-  children          Category[]         @relation("CategoryChildren")
-  position          Int                @default(0)
-  archivedAt        DateTime?          @db.Timestamptz(3)
-  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+  id                String              @id @default(uuid()) @db.Uuid
+  userId            String              @db.Uuid
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kind              String              @db.VarChar(7)
+  name              String              @db.VarChar(60)
+  description       String?             @db.VarChar(240)
+  color             String              @db.VarChar(10)
+  icon              String              @db.VarChar(12)
+  parentId          String?             @db.Uuid
+  parent            Category?           @relation("CategoryChildren", fields: [userId, parentId, kind], references: [userId, id, kind], onDelete: NoAction, onUpdate: NoAction, map: "Category_parent_owner_kind_fkey")
+  children          Category[]          @relation("CategoryChildren")
+  position          Int                 @default(0)
+  archivedAt        DateTime?           @db.Timestamptz(3)
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
 
   @@unique([userId, id, kind])
   @@index([userId, kind, parentId, position, id])
 }
 
 model FinancialAccount {
+  outgoingTransfers  FinancialTransfer[] @relation("TransferSource")
+  incomingTransfers  FinancialTransfer[] @relation("TransferDestination")
+  chargedTransfers   FinancialTransfer[] @relation("TransferFeeAccount")
   transactions       ManualTransaction[]
   id                 String              @id @default(uuid()) @db.Uuid
   userId             String              @db.Uuid
@@ -160,4 +165,55 @@ model TransactionRevision {
 
   @@unique([transactionId, revision])
   @@index([userId, transactionId, revision])
+}
+
+// A single aggregate owns both principal movements and an optional separate fee.
+model FinancialTransfer {
+  id                   String             @id @default(uuid()) @db.Uuid
+  userId               String             @db.Uuid
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sourceAccountId      String             @db.Uuid
+  sourceAccount        FinancialAccount   @relation("TransferSource", fields: [userId, sourceAccountId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
+  destinationAccountId String             @db.Uuid
+  destinationAccount   FinancialAccount   @relation("TransferDestination", fields: [userId, destinationAccountId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
+  sentAmount           Decimal            @db.Decimal(20, 4)
+  receivedAmount       Decimal            @db.Decimal(20, 4)
+  exchangeRate         Decimal            @db.Decimal(50, 30)
+  feeAmount            Decimal            @default(0) @db.Decimal(20, 4)
+  feeAccountId         String?            @db.Uuid
+  feeAccount           FinancialAccount?  @relation("TransferFeeAccount", fields: [userId, feeAccountId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
+  feeCategoryId        String?            @db.Uuid
+  feeCategoryKind      String             @default("expense") @db.VarChar(7)
+  feeCategory          Category?          @relation("TransferFeeCategory", fields: [userId, feeCategoryId, feeCategoryKind], references: [userId, id, kind], onDelete: NoAction, onUpdate: NoAction)
+  date                 DateTime           @db.Date
+  notes                String?            @db.VarChar(2000)
+  revision             Int                @default(1)
+  requestId            String             @db.Uuid
+  requestHash          String             @db.Char(64)
+  deletedAt            DateTime?          @db.Timestamptz(3)
+  createdAt            DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
+  history              TransferRevision[]
+
+  @@unique([userId, id])
+  @@unique([userId, requestId])
+  @@index([userId, date, id])
+  @@index([userId, sourceAccountId, deletedAt])
+  @@index([userId, destinationAccountId, deletedAt])
+  @@index([userId, feeAccountId, deletedAt])
+}
+
+// Append-only snapshots preserve old account links and the original currency amounts.
+model TransferRevision {
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String            @db.Uuid
+  transferId String            @db.Uuid
+  transfer   FinancialTransfer @relation(fields: [userId, transferId], references: [userId, id], onDelete: Cascade, onUpdate: NoAction)
+  revision   Int
+  action     String            @db.VarChar(7)
+  snapshot   Json
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@unique([transferId, revision])
+  @@index([userId, transferId, revision])
 }

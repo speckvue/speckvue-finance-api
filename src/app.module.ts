@@ -13,6 +13,7 @@ import CategoriesModule from './modules/categories/categories.module';
 import HealthModule from './modules/health/health.module';
 import PayeesModule from './modules/payees/payees.module';
 import TransactionsModule from './modules/transactions/transactions.module';
+import TransfersModule from './modules/transfers/transfers.module';
 import UsersModule from './modules/users/users.module';
 import RedisThrottlerStorage from './redis/redis-throttler.storage';
 import RedisModule from './redis/redis.module';
@@ -26,6 +27,7 @@ import RedisModule from './redis/redis.module';
     CategoriesModule,
     PayeesModule,
     TransactionsModule,
+    TransfersModule,
     UsersModule,
     HealthModule,
     LoggingModule,
